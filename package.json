@@ -1,0 +1,75 @@
+{
+  "name": "pfw",
+  "version": "0.2.1",
+  "description": "Package Firewall — self-hosted supply chain security for macOS. Intercepts npm/pip/cargo/yarn in ALL shells including AI agents. Zero telemetry.",
+  "type": "module",
+  "license": "MIT",
+  "author": "thebasedcapital",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thebasedcapital/pfw"
+  },
+  "homepage": "https://github.com/thebasedcapital/pfw",
+  "bugs": {
+    "url": "https://github.com/thebasedcapital/pfw/issues"
+  },
+  "keywords": [
+    "security",
+    "supply-chain",
+    "supply-chain-security",
+    "supply-chain-attack",
+    "firewall",
+    "package-firewall",
+    "npm-security",
+    "pip-security",
+    "cargo-security",
+    "vulnerability-scanner",
+    "vulnerability-detection",
+    "osv",
+    "cve",
+    "ghsa",
+    "cisa-kev",
+    "malware-detection",
+    "malware-protection",
+    "dependency-security",
+    "dependency-scanning",
+    "sca",
+    "software-composition-analysis",
+    "macos",
+    "ai-agent-security",
+    "devsecops",
+    "devops-security",
+    "zero-telemetry",
+    "self-hosted",
+    "lulu-firewall",
+    "binary-relocation",
+    "package-manager",
+    "npm",
+    "pip",
+    "cargo",
+    "yarn",
+    "pnpm",
+    "bun"
+  ],
+  "bin": {
+    "pfw": "dist/index.js",
+    "pfw-wrapper": "dist/wrapper.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "node-forge": "^1.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/node-forge": "^1.3.11",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}
