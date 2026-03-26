@@ -187,17 +187,38 @@ export async function queryDepsDev(pkg: PackageRef): Promise<SourceResult & { me
       });
     }
 
-    // Advisory keys from deps.dev (cross-reference, may overlap with OSV/GHSA)
+    // Advisory keys from deps.dev — fetch actual CVSS score for each
     if (data.advisoryKeys?.length) {
-      for (const key of data.advisoryKeys) {
-        alerts.push({
-          id: key.id,
-          summary: `Advisory from deps.dev: ${key.id}`,
-          severity: 'HIGH',
-          action: 'block',
-          source: 'deps.dev',
-        });
-      }
+      const advisoryResults = await Promise.all(
+        data.advisoryKeys.map(async (key) => {
+          try {
+            const advRes = await fetch(`https://api.deps.dev/v3alpha/advisories/${encodeURIComponent(key.id)}`, {
+              signal: AbortSignal.timeout(5_000),
+            });
+            if (advRes.ok) {
+              const advData = await advRes.json() as { cvss3Score?: number; title?: string };
+              const score = advData.cvss3Score ?? 5.0;
+              const severity = mapCvssToSeverity(score);
+              return {
+                id: key.id,
+                summary: advData.title || `Advisory from deps.dev: ${key.id}`,
+                severity,
+                action: severityToAction(severity),
+                source: 'deps.dev',
+              } as VulnerabilityAlert;
+            }
+          } catch { /* ignore individual advisory fetch failures */ }
+          // Fallback: unknown severity → warn, don't block
+          return {
+            id: key.id,
+            summary: `Advisory from deps.dev: ${key.id}`,
+            severity: 'MODERATE' as const,
+            action: 'warn' as BlockAction,
+            source: 'deps.dev',
+          } as VulnerabilityAlert;
+        })
+      );
+      alerts.push(...advisoryResults);
     }
 
     const meta: DepsDevInfo = {

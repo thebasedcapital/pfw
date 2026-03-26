@@ -110,27 +110,27 @@ function createHttpHandler(config: FirewallConfig): http.RequestListener {
         }
       }
 
-      // Check tarball downloads against OSV + local policy
+      // Check tarball downloads against local policy + vuln sources
       const pkg = parsePackageUrl(registry.kind, urlPath);
       if (pkg) {
-        const decision = await checkPackage(pkg, config);
-
-        if (decision.action === 'block') {
-          const reasons = decision.alerts.map(a => `${a.id}: ${a.summary}`).join(', ');
+        // Local policy (blocklist) = hard block always
+        const policyHit = checkLocalPolicy(pkg, config.policies);
+        if (policyHit && policyHit.action === 'block') {
           if (!config.silent) {
-            console.error(`\x1b[31m[BLOCKED]\x1b[0m ${pkg.purl} — ${reasons}`);
+            console.error(`\x1b[31m[BLOCKED]\x1b[0m ${pkg.purl} — ${policyHit.summary}`);
           }
-          res.writeHead(403, {
-            'Content-Type': 'text/plain',
-            'X-Block-Reason': decision.alerts.map(a => a.id).join(','),
-          });
-          res.end(`Package blocked: ${reasons}\n`);
+          res.writeHead(403, { 'Content-Type': 'text/plain', 'X-Block-Reason': policyHit.id });
+          res.end(`Package blocked: ${policyHit.summary}\n`);
           return;
         }
 
-        if (decision.action === 'warn' && !config.silent) {
-          const reasons = decision.alerts.map(a => `${a.id}: ${a.summary}`).join(', ');
-          console.warn(`\x1b[33m[WARN]\x1b[0m ${pkg.purl} — ${reasons}`);
+        // Vuln DB check = warn on tarball downloads (transitive deps)
+        // Hard-blocking transitive deps breaks too many installs.
+        // The vulnerability is still logged for the user to see.
+        const decision = await checkPackage(pkg, config);
+        if (decision.alerts.length > 0 && !config.silent) {
+          const reasons = decision.alerts.map(a => `[${a.severity}] ${a.id}: ${a.summary}`).join(', ');
+          console.warn(`\x1b[33m[VULN]\x1b[0m ${pkg.purl} — ${reasons}`);
         }
       }
 
