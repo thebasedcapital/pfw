@@ -6,6 +6,7 @@ import type { FirewallConfig, RegistryConfig } from './types.js';
 import { parsePackageUrl } from './registry.js';
 import { checkPackage, checkLocalPolicy, flushCache } from './api.js';
 import { getHostCert } from './tls.js';
+import { recordAudit } from './audit.js';
 
 /** Create and start the proxy server */
 export async function startProxy(config: FirewallConfig, caCert: string, caKey: string): Promise<{
@@ -103,6 +104,7 @@ function createHttpHandler(config: FirewallConfig): http.RequestListener {
             if (!config.silent) {
               console.error(`\x1b[31m[BLOCKED]\x1b[0m ${pkgName} — ${policyHit.summary}`);
             }
+            recordAudit(metaPkg, { action: 'block', alerts: [policyHit], cached: false, latencyMs: 0 });
             res.writeHead(403, { 'Content-Type': 'text/plain', 'X-Block-Reason': policyHit.id });
             res.end(`Package blocked: ${policyHit.summary}\n`);
             return;
@@ -119,15 +121,15 @@ function createHttpHandler(config: FirewallConfig): http.RequestListener {
           if (!config.silent) {
             console.error(`\x1b[31m[BLOCKED]\x1b[0m ${pkg.purl} — ${policyHit.summary}`);
           }
+          recordAudit(pkg, { action: 'block', alerts: [policyHit], cached: false, latencyMs: 0 });
           res.writeHead(403, { 'Content-Type': 'text/plain', 'X-Block-Reason': policyHit.id });
           res.end(`Package blocked: ${policyHit.summary}\n`);
           return;
         }
 
         // Vuln DB check = warn on tarball downloads (transitive deps)
-        // Hard-blocking transitive deps breaks too many installs.
-        // The vulnerability is still logged for the user to see.
         const decision = await checkPackage(pkg, config);
+        recordAudit(pkg, decision);
         if (decision.alerts.length > 0 && !config.silent) {
           const reasons = decision.alerts.map(a => `[${a.severity}] ${a.id}: ${a.summary}`).join(', ');
           console.warn(`\x1b[33m[VULN]\x1b[0m ${pkg.purl} — ${reasons}`);

@@ -8,6 +8,7 @@ import { generateCaKeyPair, loadCaCert } from './tls.js';
 import { startProxy, getProxyEnv } from './proxy.js';
 import { checkPackage } from './api.js';
 import type { PackageRef, RegistryKind } from './types.js';
+import { queryAudit, auditStats } from './audit.js';
 
 const VERSION = '0.2.0';
 const NAME = 'pfw'; // Package Firewall
@@ -227,6 +228,10 @@ async function main(): Promise<void> {
     await runUninstall();
     return;
   }
+  if (cmd === 'log') {
+    runLog(args.slice(1));
+    return;
+  }
 
   // ── Wrapper mode: pfw <command> [args...] ──
   const config = loadConfig();
@@ -288,6 +293,79 @@ async function main(): Promise<void> {
   }
 }
 
+function runLog(args: string[]): void {
+  const sub = args[0];
+
+  // pfw log stats
+  if (sub === 'stats') {
+    const s = auditStats();
+    console.log(`\n\x1b[1m[pfw] Audit Statistics\x1b[0m\n`);
+    console.log(`  Total checks:  ${s.total}`);
+    console.log(`  Blocked:       \x1b[31m${s.blocked}\x1b[0m`);
+    console.log(`  Warned:        \x1b[33m${s.warned}\x1b[0m`);
+    console.log(`  Allowed:       \x1b[32m${s.allowed}\x1b[0m`);
+    if (s.topBlocked.length) {
+      console.log(`\n  \x1b[1mTop blocked packages:\x1b[0m`);
+      for (const t of s.topBlocked) {
+        console.log(`    ${t.name} (${t.count}x)`);
+      }
+    }
+    if (s.ecosystems.length) {
+      console.log(`\n  \x1b[1mBy ecosystem:\x1b[0m`);
+      for (const e of s.ecosystems) {
+        console.log(`    ${e.ecosystem}: ${e.count}`);
+      }
+    }
+    console.log('');
+    return;
+  }
+
+  // Parse flags
+  const opts: { name?: string; ecosystem?: string; action?: string; since?: string; limit?: number; json?: boolean } = {};
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if ((arg === '--name' || arg === '-n') && args[i + 1]) { opts.name = args[++i]; }
+    else if ((arg === '--eco' || arg === '-e') && args[i + 1]) { opts.ecosystem = args[++i]; }
+    else if ((arg === '--action' || arg === '-a') && args[i + 1]) { opts.action = args[++i]; }
+    else if ((arg === '--since' || arg === '-s') && args[i + 1]) { opts.since = args[++i]; }
+    else if ((arg === '--limit' || arg === '-l') && args[i + 1]) { opts.limit = parseInt(args[++i], 10); }
+    else if (arg === '--json') { opts.json = true; }
+    else if (arg === '--blocked') { opts.action = 'block'; }
+    else if (arg === '--warned') { opts.action = 'warn'; }
+    else if (arg === '--allowed') { opts.action = 'allow'; }
+    else if (arg === 'stats') { /* handled above */ }
+    else if (!arg.startsWith('-') && !opts.name) { opts.name = arg; } // bare arg = name search
+  }
+
+  const rows = queryAudit(opts);
+
+  if (opts.json) {
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+
+  if (rows.length === 0) {
+    console.log('[pfw] No audit records found.');
+    return;
+  }
+
+  // Table output
+  console.log('');
+  console.log(`  \x1b[1m${'Timestamp'.padEnd(20)} ${'Package'.padEnd(30)} ${'Ver'.padEnd(12)} ${'Eco'.padEnd(6)} ${'Action'.padEnd(8)} Sources\x1b[0m`);
+  console.log(`  ${'─'.repeat(20)} ${'─'.repeat(30)} ${'─'.repeat(12)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(20)}`);
+  for (const row of rows) {
+    const ts = (row.ts as string).slice(0, 19);
+    const name = (row.name as string).slice(0, 29).padEnd(30);
+    const ver = (row.version as string).slice(0, 11).padEnd(12);
+    const eco = (row.ecosystem as string).padEnd(6);
+    const action = row.action as string;
+    const sources = (row.sources as string) || '-';
+    const color = action === 'block' ? '\x1b[31m' : action === 'warn' ? '\x1b[33m' : '\x1b[32m';
+    console.log(`  ${ts} ${name} ${ver} ${eco} ${color}${action.padEnd(8)}\x1b[0m ${sources}`);
+  }
+  console.log(`\n  ${rows.length} record(s)\n`);
+}
+
 function printHelp(): void {
   console.log(`
 ${NAME} — Package Firewall (self-hosted, zero telemetry)
@@ -296,6 +374,8 @@ Usage:
   ${NAME} <command> [args...]     Wrap a command through the firewall
   ${NAME} daemon [start|status|stop]  Run as a persistent daemon (port ${DAEMON_PORT})
   ${NAME} check <eco> <pkg>@<ver>     Manual package vulnerability check
+  ${NAME} log [options]               Query the audit log
+  ${NAME} log stats                   Show audit statistics
   ${NAME} install                     Set up pfw (CA trust, shell, launchd)
 
 Examples:
@@ -305,6 +385,13 @@ Examples:
   ${NAME} daemon start
   ${NAME} daemon status
   ${NAME} check npm lodash@4.17.21
+  ${NAME} log                          Last 50 checks
+  ${NAME} log --blocked                Show blocked packages
+  ${NAME} log --name lodash            Search by name
+  ${NAME} log --eco npm --limit 100    Filter by ecosystem
+  ${NAME} log --since 2026-03-25       Since date
+  ${NAME} log --json                   JSON output (for agents)
+  ${NAME} log stats                    Summary statistics
 
 Options:
   --help, -h       Show this help

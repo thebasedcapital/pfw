@@ -1,6 +1,6 @@
 {
   "name": "pfw",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Package Firewall — self-hosted supply chain security for macOS. Intercepts npm/pip/cargo/yarn in ALL shells including AI agents. Zero telemetry.",
   "type": "module",
   "license": "MIT",
