@@ -47,6 +47,10 @@ function parseConfigFile(filePath: string): Partial<FirewallConfig> {
       case 'CACHE_TTL_MS': config.cacheTtlMs = parseInt(value); break;
       case 'STALE_TTL_MS': config.staleTtlMs = parseInt(value); break;
       case 'OSV_ENABLED': config.osvEnabled = value !== 'false'; break;
+      case 'NPM_AGE_ENABLED': config.npmAgeEnabled = value !== 'false'; break;
+      case 'NEW_PKG_MAX_AGE_HOURS': config.newPkgMaxAgeHours = parseFloat(value); break;
+      case 'NEW_PKG_MIN_DOWNLOADS': config.newPkgMinDownloads = parseInt(value); break;
+      case 'NEW_VERSION_MAX_AGE_HOURS': config.newVersionMaxAgeHours = parseFloat(value); break;
       case 'LOCAL_POLICY_ONLY': config.localPolicyOnly = value === 'true'; break;
       case 'BLOCK':
         policies.push({ pattern: value, action: 'block', reason: 'local policy' });
@@ -126,6 +130,10 @@ export function loadConfig(): FirewallConfig {
     cacheTtlMs: parseInt(env.PFW_CACHE_TTL_MS || '600000'),
     staleTtlMs: parseInt(env.PFW_STALE_TTL_MS || '86400000'),
     osvEnabled: env.PFW_OSV_ENABLED !== 'false',
+    npmAgeEnabled: env.PFW_NPM_AGE_ENABLED !== 'false',
+    newPkgMaxAgeHours: parseFloat(env.PFW_NEW_PKG_MAX_AGE_HOURS || '24'),
+    newPkgMinDownloads: parseInt(env.PFW_NEW_PKG_MIN_DOWNLOADS || '500'),
+    newVersionMaxAgeHours: parseFloat(env.PFW_NEW_VERSION_MAX_AGE_HOURS || '2'),
     localPolicyOnly: env.PFW_LOCAL_POLICY_ONLY === 'true',
   };
 

@@ -293,26 +293,130 @@ export async function checkCisaKev(cveIds: string[]): Promise<VulnerabilityAlert
   return alerts;
 }
 
+// ─── 5. npm Age + Download Count (New Package Detection) ─────
+
+const NPM_REGISTRY_API = 'https://registry.npmjs.org';
+const NPM_DOWNLOADS_API = 'https://api.npmjs.org/downloads/point/last-week';
+
+export interface NpmAgeInfo {
+  publishedAt: Date;
+  ageHours: number;
+  weeklyDownloads: number;
+  packageCreatedAt: Date;
+  packageAgeHours: number;
+}
+
+export interface NpmAgeThresholds {
+  newPkgMaxAgeHours: number;   // default 24
+  newPkgMinDownloads: number;  // default 500
+  newVersionMaxAgeHours: number; // default 2
+}
+
+/** Fetch npm publish time for a specific version + weekly downloads.
+ *  Detects the axios/plain-crypto-js attack pattern:
+ *  brand-new package + low downloads = likely supply chain implant. */
+export async function queryNpmAge(
+  pkg: PackageRef,
+  thresholds: NpmAgeThresholds = { newPkgMaxAgeHours: 24, newPkgMinDownloads: 500, newVersionMaxAgeHours: 2 },
+): Promise<SourceResult & { ageInfo?: NpmAgeInfo }> {
+  if (pkg.kind !== 'npm') return { source: 'npm-age', alerts: [], error: false, latencyMs: 0 };
+
+  const start = Date.now();
+  try {
+    const [metaRes, dlRes] = await Promise.all([
+      fetch(`${NPM_REGISTRY_API}/${encodeURIComponent(pkg.name)}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(8_000),
+      }),
+      fetch(`${NPM_DOWNLOADS_API}/${encodeURIComponent(pkg.name)}`, {
+        signal: AbortSignal.timeout(8_000),
+      }),
+    ]);
+
+    if (!metaRes.ok) return { source: 'npm-age', alerts: [], error: true, latencyMs: Date.now() - start };
+
+    const meta = await metaRes.json() as {
+      time?: Record<string, string>; // version → ISO date, plus 'created' / 'modified' keys
+    };
+    const dlData = dlRes.ok ? await dlRes.json() as { downloads?: number } : { downloads: 0 };
+
+    const versionTime = meta.time?.[pkg.version];
+    const packageCreated = meta.time?.['created'];
+    if (!versionTime) return { source: 'npm-age', alerts: [], error: false, latencyMs: Date.now() - start };
+
+    const publishedAt = new Date(versionTime);
+    const packageCreatedAt = packageCreated ? new Date(packageCreated) : publishedAt;
+    const nowMs = Date.now();
+    const ageHours = (nowMs - publishedAt.getTime()) / 3_600_000;
+    const packageAgeHours = (nowMs - packageCreatedAt.getTime()) / 3_600_000;
+    const weeklyDownloads = dlData.downloads ?? 0;
+
+    const ageInfo: NpmAgeInfo = { publishedAt, ageHours, weeklyDownloads, packageCreatedAt, packageAgeHours };
+    const alerts: VulnerabilityAlert[] = [];
+
+    const { newPkgMaxAgeHours, newPkgMinDownloads, newVersionMaxAgeHours } = thresholds;
+
+    // HARD BLOCK: brand-new package with near-zero downloads
+    // Exact fingerprint of the axios/plain-crypto-js 2026-03-31 attack.
+    if (packageAgeHours < newPkgMaxAgeHours && weeklyDownloads < newPkgMinDownloads) {
+      alerts.push({
+        id: 'npm-new-package',
+        summary: `New package: created ${packageAgeHours.toFixed(1)}h ago, ${weeklyDownloads} weekly downloads — matches supply chain implant pattern`,
+        severity: 'CRITICAL',
+        action: 'block',
+        source: 'npm-age',
+      });
+    // HARD BLOCK: very recent version on a low-adoption package — covers injected versions on hijacked accounts
+    } else if (ageHours < newVersionMaxAgeHours && weeklyDownloads < 10_000) {
+      alerts.push({
+        id: 'npm-new-version',
+        summary: `Version published ${ageHours.toFixed(1)}h ago, low adoption (${weeklyDownloads} dl/week) — possible hijack window`,
+        severity: 'HIGH',
+        action: 'block',
+        source: 'npm-age',
+      });
+    // WARN: version is very recent (<6h) on any package
+    } else if (ageHours < 6) {
+      alerts.push({
+        id: 'npm-very-recent-version',
+        summary: `Version published ${ageHours.toFixed(1)}h ago — verify integrity before use`,
+        severity: 'MODERATE',
+        action: 'warn',
+        source: 'npm-age',
+      });
+    }
+
+    return { source: 'npm-age', alerts, error: false, latencyMs: Date.now() - start, ageInfo };
+  } catch {
+    return { source: 'npm-age', alerts: [], error: true, latencyMs: Date.now() - start };
+  }
+}
+
 // ─── Aggregator: query all sources in parallel ───────────────
 
-export async function queryAllSources(pkg: PackageRef): Promise<{
+export async function queryAllSources(
+  pkg: PackageRef,
+  opts: { npmAgeEnabled?: boolean; ageThresholds?: NpmAgeThresholds } = {},
+): Promise<{
   alerts: VulnerabilityAlert[];
   errors: string[];
   latencyMs: number;
 }> {
   const start = Date.now();
+  const npmAgeEnabled = opts.npmAgeEnabled !== false;
 
-  // Fire all 3 API sources in parallel (CISA KEV runs after to cross-reference)
-  const [osvResult, ghsaResult, depsResult] = await Promise.all([
+  // Fire all sources in parallel (CISA KEV runs after to cross-reference CVE IDs)
+  const [osvResult, ghsaResult, depsResult, ageResult] = await Promise.all([
     queryOsv(pkg),
     queryGhsa(pkg),
     queryDepsDev(pkg),
+    npmAgeEnabled ? queryNpmAge(pkg, opts.ageThresholds) : Promise.resolve({ source: 'npm-age', alerts: [], error: false, latencyMs: 0 }),
   ]);
 
   // Collect all alerts, deduplicate by normalized ID
   const alertMap = new Map<string, VulnerabilityAlert>();
   const errors: string[] = [];
-  const allResults = [osvResult, ghsaResult, depsResult];
+  const allResults = [osvResult, ghsaResult, depsResult, ageResult];
 
   for (const result of allResults) {
     if (result.error) errors.push(result.source);

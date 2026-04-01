@@ -50,14 +50,22 @@ export async function checkPackage(pkg: PackageRef, config: FirewallConfig): Pro
     return decision;
   }
 
-  // 4. Query all external sources in parallel (OSV + GHSA + deps.dev + CISA KEV)
-  const result = await queryAllSources(pkg);
+  // 4. Query all external sources in parallel (OSV + GHSA + deps.dev + CISA KEV + npm-age)
+  const result = await queryAllSources(pkg, {
+    npmAgeEnabled: config.npmAgeEnabled,
+    ageThresholds: {
+      newPkgMaxAgeHours: config.newPkgMaxAgeHours,
+      newPkgMinDownloads: config.newPkgMinDownloads,
+      newVersionMaxAgeHours: config.newVersionMaxAgeHours,
+    },
+  });
   const alerts = [...result.alerts];
   if (policyAlert) alerts.push(policyAlert);
 
-  // 5. If ALL sources failed and no policy alerts, use failAction
-  const EXPECTED_SOURCES = 3; // osv + ghsa + deps.dev (update if adding sources)
-  const allSourcesFailed = result.errors.length >= EXPECTED_SOURCES;
+  // 5. If ALL vuln sources failed and no policy alerts, use failAction
+  // npm-age errors are non-fatal (network to npm is usually reliable)
+  const EXPECTED_SOURCES = 3; // osv + ghsa + deps.dev (npm-age failure is non-fatal)
+  const allSourcesFailed = result.errors.filter(s => s !== 'npm-age').length >= EXPECTED_SOURCES;
   if (allSourcesFailed && alerts.length === 0) {
     const decision: BlockDecision = {
       action: config.failAction,

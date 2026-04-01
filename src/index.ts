@@ -104,7 +104,7 @@ async function runDaemon(subArgs: string[]): Promise<void> {
   if (config.localPolicyOnly) {
     console.log('[pfw] Local policy only mode — no external API calls');
   } else {
-    console.log('[pfw] Sources: OSV.dev + GitHub Advisory + deps.dev + CISA KEV');
+    console.log('[pfw] Sources: OSV.dev + GitHub Advisory + deps.dev + CISA KEV + npm-age');
   }
 
   // Graceful shutdown on SIGTERM/SIGINT
@@ -244,7 +244,7 @@ async function main(): Promise<void> {
     if (config.localPolicyOnly) {
       console.log('[pfw] Local policy only mode — no external API calls');
     } else {
-      console.log('[pfw] Sources: OSV.dev + GitHub Advisory + deps.dev + CISA KEV');
+      console.log('[pfw] Sources: OSV.dev + GitHub Advisory + deps.dev + CISA KEV + npm-age');
     }
   }
 
@@ -402,8 +402,12 @@ Environment:
   PFW_SILENT=true             Suppress all output
   PFW_FAIL_ACTION=block       Block when API unreachable (default: allow)
   PFW_LOCAL_POLICY_ONLY=true  No external API calls, local rules only
-  PFW_OSV_ENABLED=false       Disable OSV.dev queries
-  PFW_CA_CERT_PATH=<path>     Custom CA certificate
+  PFW_OSV_ENABLED=false              Disable OSV.dev queries
+  PFW_NPM_AGE_ENABLED=false          Disable npm age/download check
+  PFW_NEW_PKG_MAX_AGE_HOURS=24       Block packages newer than N hours with low downloads (default: 24)
+  PFW_NEW_PKG_MIN_DOWNLOADS=500      Min weekly downloads to pass new-package check (default: 500)
+  PFW_NEW_VERSION_MAX_AGE_HOURS=2    Block versions newer than N hours on low-adoption packages (default: 2)
+  PFW_CA_CERT_PATH=<path>            Custom CA certificate
   PFW_CA_KEY_PATH=<path>      Custom CA key
 
 Config file: .pfw.config (searched from cwd to root, then ~/.pfw.config)

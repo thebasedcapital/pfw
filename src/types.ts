@@ -51,6 +51,10 @@ export interface FirewallConfig {
   cacheTtlMs: number;
   staleTtlMs: number;
   osvEnabled: boolean;
+  npmAgeEnabled: boolean; // false = skip age/download check entirely
+  newPkgMaxAgeHours: number; // package age threshold for CRITICAL block (default: 24)
+  newPkgMinDownloads: number; // weekly download threshold for CRITICAL block (default: 500)
+  newVersionMaxAgeHours: number; // version age threshold for HIGH block (default: 2)
   localPolicyOnly: boolean; // true = no external API calls at all
   port?: number; // fixed port override (default: random)
 }
